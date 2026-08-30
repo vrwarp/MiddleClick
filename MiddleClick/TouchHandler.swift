@@ -88,7 +88,7 @@ import AppKit
     return passthrough
   }
 
-  private func processTouches(_ touches: [NSTouch]) {
+  private func processTouches(_ touches: Set<NSTouch>) {
     if maybeMiddleClick {
       middleClickPos1 = .zero
     } else {
