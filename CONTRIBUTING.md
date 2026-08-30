@@ -36,30 +36,28 @@ See [docs/dev.md](./docs/dev.md) for filtering by category.
 ```
 MiddleClick/
   main.swift              — Entry point
-  Controller.swift        — Lifecycle: start, restart on wake/device changes, session handling
+  Controller.swift        — Lifecycle: starting/stopping event taps, session handling
   Controller+Mouse.swift  — Mouse event (click) callback
-  TouchHandler.swift      — Multitouch callback: finger counting, tap detection, middle-click emulation
+  TouchHandler.swift      — Touch (gesture) event tap: finger counting, tap detection, middle-click emulation
   Config.swift            — User defaults (fingers, maxTimeDelta, etc.)
   TrayMenu.swift          — Status bar menu UI
   FingerCountControl.swift — The finger count stepper in the menu
   SystemPermissions.swift — Reading system trackpad settings
   GlobalState.swift       — Shared state between touch and mouse callbacks
   Helpers/
-    CGEventController.swift     — CGEvent tap for mouse events
-    IOMultitouchManager.swift   — Listens for multitouch device connect/disconnect
+    CGEventController.swift     — CGEvent tap wrapper: creation, re-arming on disable, teardown
     AccessibilityMonitor.swift  — Accessibility permission monitoring
-MoreTouch/                — Swift package wrapping the private MultitouchSupport framework
-  Sources/MultitouchSupport/MultitouchSupport.h  — C header for Apple's private multitouch API
-  Sources/MoreTouchCore/Core.swift               — Swift extensions on MTDevice
 ConfigCore/               — Swift package for the @UserDefault property wrapper
 ```
 
+The app is built on public APIs only — no private frameworks, no kernel extensions.
+
 ### How it works (briefly)
 
-1. `TouchHandler` registers a callback on every connected multitouch device (`MTDevice`).
-2. When fingers touch the surface, the callback tracks finger count, positions, and timing.
-3. If the touch matches the configured gesture (N fingers, within time/distance thresholds), it emits a `CGEvent` middle-click.
-4. `Controller+Mouse` handles the click-based path (as opposed to tap-based) using a `CGEvent` tap.
+1. `TouchHandler` installs a listen-only `CGEvent` tap for gesture events; every gesture event carries the current set of `NSTouch`es, which gives finger count, positions, and timing.
+2. If the touch matches the configured gesture (N fingers, within time/distance thresholds), it emits a `CGEvent` middle-click.
+3. `Controller+Mouse` handles the click-based path (as opposed to tap-based) using an active `CGEvent` tap that rewrites clicks into middle clicks.
+4. When macOS disables a tap, it sends `tapDisabledByTimeout`/`tapDisabledByUserInput` into the tap's own callback — `CGEventController` re-arms the tap in place, so listeners don't silently die.
 
 ## Pull request guidelines
 

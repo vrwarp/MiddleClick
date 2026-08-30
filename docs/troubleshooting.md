@@ -15,7 +15,7 @@ macOS may stop recognizing MiddleClick's Accessibility permission after an app u
 
 ## Antivirus / CleanMyMac flags MiddleClick as adware
 
-This is a false positive. MiddleClick uses macOS Accessibility and MultitouchSupport APIs to detect finger gestures — which is exactly the kind of system access that triggers heuristic warnings in some security tools.
+This is a false positive. MiddleClick uses macOS Accessibility APIs and system event taps to detect finger gestures — which is exactly the kind of system access that triggers heuristic warnings in some security tools.
 
 MiddleClick is fully open-source — you can audit every line of code in this repository, or build from source yourself.
 

@@ -27,4 +27,3 @@ final class CustomLogger: Sendable {
 }
 
 let log = CustomLogger(category: "app")
-let restartLog = CustomLogger(category: "schedule")

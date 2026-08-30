@@ -4,7 +4,7 @@ all: archive export compress
 .PHONY: run force-build clean-build
 
 # Find all source files to track dependencies
-SOURCES := $(shell find MiddleClick MoreTouch ConfigCore -type f \( -name "*.swift" -o -name "*.h" -o -name "*.m" \) 2>/dev/null)
+SOURCES := $(shell find MiddleClick ConfigCore -type f \( -name "*.swift" -o -name "*.h" -o -name "*.m" \) 2>/dev/null)
 
 # Stamp file to track last build
 BUILD_STAMP := ./build/.build-stamp

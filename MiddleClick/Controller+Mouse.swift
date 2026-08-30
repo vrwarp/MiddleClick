@@ -6,7 +6,13 @@ extension Controller {
   private static let state = GlobalState.shared
   private static let kCGMouseButtonCenter = Int64(CGMouseButton.center.rawValue)
 
-  static let mouseEventHandler = CGEventController {
+  /// Active (`.defaultTap`), because it must rewrite clicks into middle clicks.
+  /// If macOS ever disables it, `CGEventController` re-arms it in place.
+  static let mouseEventHandler = CGEventController(
+    eventsOfInterest: .from(
+      .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp
+    )
+  ) {
     _, type, event, _ in
 
     let returnedEvent = Unmanaged.passUnretained(event)

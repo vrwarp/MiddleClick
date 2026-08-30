@@ -28,12 +28,12 @@ Refer to [CustomLogger.swift](../MiddleClick/CustomLogger.swift) for up-to-date 
 
 ### Categories
 
-Categories allow you to filter for specific events defined by the app's code, e.g. the "schedule" category corresponds to logs for the listener restart feature.
+Categories allow you to filter for specific events defined by the app's code, e.g. the "app" category corresponds to the app's general logs.
 
 Example:
 
 ```sh
-log stream --predicate 'subsystem == "art.ginzburg.MiddleClick" && category == "schedule"' --style compact --level debug
+log stream --predicate 'subsystem == "art.ginzburg.MiddleClick" && category == "app"' --style compact --level debug
 ```
 
 This can be particularly useful when developing a new feature. You can add a new logger at [CustomLogger.swift](../MiddleClick/CustomLogger.swift), and use it in the feature's code.

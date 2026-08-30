@@ -1,5 +1,4 @@
-import MoreTouchCore
-import MultitouchSupport
+import AppKit
 
 @MainActor class TouchHandler {
   static let shared = TouchHandler()
@@ -27,9 +26,26 @@ import MultitouchSupport
   private var middleClickPos1: SIMD2<Float> = .zero
   private var middleClickPos2: SIMD2<Float> = .zero
 
-  private let touchCallback: MTFrameCallbackFunction = {
-    _, data, nFingers, _, _ in
-    guard !AppUtils.isIgnoredAppBundle() else { return }
+  /// Trackpad (and Magic Mouse) touches reach us through the public gesture event
+  /// stream: every `gesture` event carries the current set of `NSTouch`es, which is
+  /// enough to count fingers and track their movement — no private framework needed.
+  private static let touchCallback: CGEventTapCallBack = {
+    _, type, event, _ in
+    // The tap is listen-only, so the returned event is ignored — pass it through untouched.
+    let passthrough = Unmanaged.passUnretained(event)
+
+    guard NSEvent.EventType(rawValue: UInt(type.rawValue)) == .gesture,
+          let nsEvent = NSEvent(cgEvent: event)
+    else { return passthrough }
+
+    let touches = nsEvent.allTouches()
+    // The gesture stream occasionally contains events without touch data. They say nothing about fingers, so skip them.
+    guard !touches.isEmpty else { return passthrough }
+
+    guard !AppUtils.isIgnoredAppBundle() else { return passthrough }
+
+    let touchingFingers = touches.filter { $0.isTouching }
+    let nFingers = touchingFingers.count
 
     let state = GlobalState.shared
 
@@ -38,11 +54,11 @@ import MultitouchSupport
 
     let handler = TouchHandler.shared
 
-    guard handler.tapToClick else { return }
+    guard handler.tapToClick else { return passthrough }
 
     guard nFingers != 0 else {
       handler.handleTouchEnd()
-      return
+      return passthrough
     }
 
     let isTouchStart = nFingers > 0 && handler.touchStartTime == nil
@@ -58,32 +74,30 @@ import MultitouchSupport
       }
     }
 
-    guard !(nFingers < fingersQua) else { return }
+    guard !(nFingers < fingersQua) else { return passthrough }
 
     if !allowMoreFingers && nFingers > fingersQua {
       handler.resetMiddleClick()
     }
 
     let isCurrentFingersQuaAllowed = allowMoreFingers ? nFingers >= fingersQua : nFingers == fingersQua
-    guard isCurrentFingersQuaAllowed else { return }
+    guard isCurrentFingersQuaAllowed else { return passthrough }
 
-    handler.processTouches(data: data, nFingers: nFingers)
+    handler.processTouches(touchingFingers)
 
-    return
+    return passthrough
   }
 
-  private func processTouches(data: UnsafePointer<MTTouch>?, nFingers: Int32) {
-    guard let data = data else { return }
-
+  private func processTouches(_ touches: [NSTouch]) {
     if maybeMiddleClick {
       middleClickPos1 = .zero
     } else {
       middleClickPos2 = .zero
     }
 
-//    TODO: Wait, what? Why is this iterating by fingersQua instead of nFingers, given that e.g. "allowMoreFingers" exists?
-    for touch in UnsafeBufferPointer(start: data, count: Self.fingersQua) {
-      let pos = SIMD2(touch.normalizedVector.position)
+//    TODO: Wait, what? Why is this iterating by fingersQua instead of all touching fingers, given that e.g. "allowMoreFingers" exists?
+    for touch in touches.prefix(Self.fingersQua) {
+      let pos = SIMD2(touch.normalizedPosition)
       if maybeMiddleClick {
         middleClickPos1 += pos
       } else {
@@ -147,19 +161,30 @@ import MultitouchSupport
     )?.post(tap: .cghidEventTap)
   }
 
-  private var currentDeviceList: [MTDevice] = []
-  func registerTouchCallback() {
-    currentDeviceList = MTDevice.createList()
-    currentDeviceList.forEach { $0.registerAndStart(touchCallback) }
+  /// Listen-only, so the system never has a timeout reason to disable it —
+  /// and if it disables it anyway, `CGEventController` re-arms it in place.
+  private static let touchListener = CGEventController(
+    options: .listenOnly,
+    eventsOfInterest: CGEventMask(NSEvent.EventTypeMask.gesture.rawValue),
+    callback: touchCallback
+  )
+
+  func start() {
+    _ = Self.touchListener.start()
   }
-  func unregisterTouchCallback() {
-    currentDeviceList.forEach { $0.unregisterAndStop(touchCallback) }
-    currentDeviceList.removeAll()
+  func stop() {
+    Self.touchListener.stop()
   }
 }
 
+private extension NSTouch {
+  /// Whether the finger is currently on the surface. A single gesture event may
+  /// mix lifted (`ended`/`cancelled`) touches with ones still down.
+  var isTouching: Bool { !phase.intersection(.touching).isEmpty }
+}
+
 extension SIMD2 where Scalar == Float {
-  init(_ point: MTPoint) { self.init(point.x, point.y) }
+  init(_ point: NSPoint) { self.init(Float(point.x), Float(point.y)) }
 }
 extension SIMD2 where Scalar: FloatingPoint {
   func delta(to other: SIMD2) -> Scalar {

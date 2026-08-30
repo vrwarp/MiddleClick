@@ -5,7 +5,7 @@ protocol Pointerable: AnyObject {}
 extension Pointerable {
   static func from(pointer: UnsafeMutableRawPointer?) -> Self {
     guard let pointer = pointer else {
-      fatalError("Attempted to obtain Controller from nil pointer. This should never happen.")
+      fatalError("Attempted to obtain an instance from nil pointer. This should never happen.")
     }
 
     return Unmanaged<Self>.fromOpaque(pointer).takeUnretainedValue()

@@ -1,61 +1,33 @@
 import AppKit
 
-// swiftlint:disable:next redundant_sendable
-@MainActor final class Controller: PointerableObject, Sendable {
-  private lazy var multitouchManager = IOMultitouchManager {
-    self.scheduleRestart(2, reason: "Multitouch device added")
-  }
-
-  private var restartTimer: Timer?
-
-  private static let fastRestart = false
-  private static let wakeRestartTimeout: TimeInterval = fastRestart ? 2 : 10
-
-  private static let immediateRestart = false
-
+@MainActor final class Controller {
   func start() {
     log.info("Starting listeners...")
 
-    TouchHandler.shared.registerTouchCallback()
-    observeWakeNotification()
     setupSessionHandling()
-    multitouchManager.setupMultitouchListener()
-    setupDisplayReconfigurationCallback()
 
     accessibilityMonitor.addListener { becameTrusted in
       if becameTrusted {
-        _ = Self.mouseEventHandler.start()
+        self.startEventTaps()
       } else {
         trayMenu.isStatusItemVisible = true
-        Self.mouseEventHandler.stop()
+        self.stopEventTaps()
       }
     }
 
     checkForConflicts()
   }
 
-  /// Schedule listeners to be restarted. If a restart is pending, discard its delay and use the most recently requested delay.
-  func scheduleRestart(_ delay: TimeInterval, reason: String) {
-    if !isUserSessionActive {
-      restartLog.info("\(reason), but user session is inactive - skipping restart")
-      return
-    }
-    restartLog.info("\(reason), restarting in \(delay)")
-    restartTimer?.invalidate()
-    restartTimer = Timer.scheduledTimer(
-      withTimeInterval: Self.immediateRestart ? 0 : delay, repeats: false
-    ) { _ in
-      DispatchQueue.main.async {
-        self.restartListeners()
-      }
-    }
-  }
+  // Event taps don't need the old reactive restarts (on wake, display
+  // reconfiguration, device hotplug): they aren't tied to a device, survive
+  // sleep, and when macOS does disable one, it announces it right into the
+  // tap's callback — where CGEventController re-arms it in place.
 
   func restartListeners() {
     log.info("Restarting now...")
-    stopUnstableListeners()
+    stopEventTaps()
     if isUserSessionActive {
-      startUnstableListeners()
+      startEventTaps()
       log.info("Restart success.")
     } else {
 //      This logic should never be reached — just a safeguard.
@@ -63,70 +35,34 @@ import AppKit
     }
   }
 
-  private func startUnstableListeners() {
-    TouchHandler.shared.registerTouchCallback()
+  private func startEventTaps() {
+    guard isUserSessionActive else {
+      log.info("User session is inactive - not starting event taps")
+      return
+    }
+    TouchHandler.shared.start()
     _ = Self.mouseEventHandler.start()
   }
 
-  private func stopUnstableListeners() {
-    TouchHandler.shared.unregisterTouchCallback()
+  private func stopEventTaps() {
+    TouchHandler.shared.stop()
     Self.mouseEventHandler.stop()
-  }
-}
-
-fileprivate extension Controller {
-  /// Callback for system wake up.
-  /// Can be tested by entering `pmset sleepnow` in the Terminal
-  @objc func receiveWakeNote(_ note: Notification) {
-    scheduleRestart(Self.wakeRestartTimeout, reason: "System woke up")
-  }
-
-  func observeWakeNotification() {
-    NSWorkspace.shared.notificationCenter.addObserver(
-      self,
-      selector: #selector(receiveWakeNote),
-      name: NSWorkspace.didWakeNotification,
-      object: nil
-    )
-  }
-}
-
-fileprivate extension Controller {
-  /// TODO:? is this restart necessary? I don't see any changes when it's removed, but keep in mind I've only spent 5 minutes testing different app and system states
-  static let displayReconfigurationCallback:
-  CGDisplayReconfigurationCallBack = { _, flags, userData in
-    if flags.containsAny(of: .setModeFlag, .addFlag, .removeFlag, .disabledFlag) {
-      Controller.from(pointer: userData).scheduleRestart(2, reason: "Display reconfigured")
-    }
-  }
-
-  func setupDisplayReconfigurationCallback() {
-    CGDisplayRegisterReconfigurationCallback(
-      Self.displayReconfigurationCallback,
-      rawPointer
-    )
-  }
-}
-
-fileprivate extension CGDisplayChangeSummaryFlags {
-  func containsAny(of flags: CGDisplayChangeSummaryFlags...) -> Bool {
-    flags.contains(where: contains)
   }
 }
 
 // MARK: - Session Handling for Fast User Switching
 //
-// Always enabled: the multitouch session switching bug (#127) still reproduces
-// on macOS 26.5 when MiddleClick runs in more than one logged-in user's session —
-// concurrent multitouch device registrations from different sessions break frame
-// delivery. Stopping listeners while the session is off-console is safe on every
+// Always enabled: with MiddleClick running in more than one logged-in user's
+// session (#127), only the on-console session should keep event taps installed —
+// an off-console instance must not fight the active one over rewriting clicks.
+// Stopping listeners while the session is off-console is safe on every
 // macOS version, so no version gate.
 
 fileprivate extension Controller {
   /// Session state tracking variables (using static storage for simplicity)
   private static var _userSessionActive = true
 
-  /// Public accessor for session state (used by scheduleRestart and restartListeners)
+  /// Public accessor for session state (used by restartListeners and startEventTaps)
   var isUserSessionActive: Bool { Self._userSessionActive }
 
   /// Initialize session handling - call this from start()
@@ -153,11 +89,9 @@ fileprivate extension Controller {
   @objc private func receiveSessionResignActiveNote(_ note: Notification) {
     log.info("User session resigned active, stopping listeners")
     Self._userSessionActive = false
-    restartTimer?.invalidate()
-    restartTimer = nil
 
     DispatchQueue.main.async {
-      self.stopUnstableListeners()
+      self.stopEventTaps()
     }
   }
 
