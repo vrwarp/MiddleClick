@@ -1,0 +1,26 @@
+name: Build Check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Use Latest Available Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)/Contents/Developer"
+
+      # Signing is disabled: this job only validates that the project compiles.
+      # xcodebuild is invoked directly (not via `make build-debug`, whose
+      # `| grep ... || true` masks the exit code) so a failed build fails the job.
+      - name: Build (Debug, unsigned)
+        run: |
+          xcodebuild -project MiddleClick.xcodeproj -scheme MiddleClick \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            build
